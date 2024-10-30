@@ -98,6 +98,7 @@ var (
 			UnbondingPeriod:         6 * 60 * 60,
 			BlockPeriod:             1,
 			MaxCommitteeSize:        28,
+			MaxScheduleDuration:     uint64(3 * SecondsInYear),
 			Operator:                common.HexToAddress("0xd32C0812Fa1296F082671D5Be4CbB6bEeedC2397"),
 			Treasury:                common.HexToAddress("0xF74c34Fed10cD9518293634C6f7C12638a808Ad5"),
 			TreasuryFee:             10_000_000_000_000_000,
@@ -329,6 +330,26 @@ var (
 					BondedStake:   Ntn40000,
 				},
 			},
+			Schedules: []Schedule{
+				{
+					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 2*7*SecondsInDay),
+					TotalDuration: big.NewInt(2 * 7 * SecondsInDay),
+					Amount:        new(big.Int).Mul(big.NewInt(1_000_000), DecimalFactor),
+					VaultAddress:  NonStakeableVestingContractAddress,
+				},
+				{
+					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 4*7*SecondsInDay),
+					TotalDuration: big.NewInt(2*SecondsInYear - 4*7*SecondsInDay),
+					Amount:        new(big.Int).Mul(big.NewInt(4_000_000), DecimalFactor),
+					VaultAddress:  NonStakeableVestingContractAddress,
+				},
+				{
+					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 6*7*SecondsInDay),
+					TotalDuration: big.NewInt(3*SecondsInYear - 6*7*SecondsInDay),
+					Amount:        new(big.Int).Mul(big.NewInt(5_000_000), DecimalFactor),
+					VaultAddress:  NonStakeableVestingContractAddress,
+				},
+			},
 		},
 		OracleContractConfig: &OracleContractGenesis{
 			VotePeriod: OracleVotePeriod,
@@ -349,60 +370,43 @@ var (
 			},
 		},
 		AccountabilityConfig: DefaultAccountabilityConfig,
-		NonStakableVestingConfig: &NonStakableVestingGenesis{
-			TotalNominal:       new(big.Int).Mul(big.NewInt(10_000_000), DecimalFactor), // 10 million NTN
-			MaxAllowedDuration: big.NewInt(3 * SecondsInYear),
-			NonStakableSchedules: []NonStakableSchedule{
+		NonStakeableVestingConfig: &NonStakeableVestingGenesis{
+			NonStakeableContracts: []NonStakeableVestingData{
 				{
-					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 2*7*SecondsInDay),
+					Beneficiary:   common.HexToAddress("0xB0984E6bB363040394BcDdf317A27E3B9b064438"),
+					Amount:        new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
+					ScheduleID:    common.Big0,
 					CliffDuration: big.NewInt(0),
-					TotalDuration: big.NewInt(2 * 7 * SecondsInDay),
-					Amount:        new(big.Int).Mul(big.NewInt(1_000_000), DecimalFactor),
 				},
 				{
-					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 4*7*SecondsInDay),
+					Beneficiary:   common.HexToAddress("0xa905CF052623eF4aB76b5ee32b4De81e9C9edfA6"),
+					Amount:        new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
+					ScheduleID:    common.Big1,
 					CliffDuration: big.NewInt(0),
-					TotalDuration: big.NewInt(2*SecondsInYear - 4*7*SecondsInDay),
-					Amount:        new(big.Int).Mul(big.NewInt(4_000_000), DecimalFactor),
 				},
 				{
-					Start:         big.NewInt(PiccadillyGenesisUnixTimestamp + 6*7*SecondsInDay),
+					Beneficiary:   common.HexToAddress("0x908e3106157f3807Daadc7D5B74A67E26A2124b6"),
+					Amount:        new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
+					ScheduleID:    common.Big2,
 					CliffDuration: big.NewInt(0),
-					TotalDuration: big.NewInt(3*SecondsInYear - 6*7*SecondsInDay),
-					Amount:        new(big.Int).Mul(big.NewInt(5_000_000), DecimalFactor),
-				},
-			},
-			NonStakableContracts: []NonStakableVestingData{
-				{
-					Beneficiary: common.HexToAddress("0xB0984E6bB363040394BcDdf317A27E3B9b064438"),
-					Amount:      new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
-					ScheduleID:  common.Big0,
 				},
 				{
-					Beneficiary: common.HexToAddress("0xa905CF052623eF4aB76b5ee32b4De81e9C9edfA6"),
-					Amount:      new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
-					ScheduleID:  common.Big1,
+					Beneficiary:   common.HexToAddress("0x908e3106157f3807Daadc7D5B74A67E26A2124b6"),
+					Amount:        new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
+					ScheduleID:    common.Big2,
+					CliffDuration: big.NewInt(0),
 				},
 				{
-					Beneficiary: common.HexToAddress("0x908e3106157f3807Daadc7D5B74A67E26A2124b6"),
-					Amount:      new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
-					ScheduleID:  common.Big2,
-				},
-				{
-					Beneficiary: common.HexToAddress("0x908e3106157f3807Daadc7D5B74A67E26A2124b6"),
-					Amount:      new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
-					ScheduleID:  common.Big2,
-				},
-				{
-					Beneficiary: common.HexToAddress("0xa905CF052623eF4aB76b5ee32b4De81e9C9edfA6"),
-					Amount:      new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
-					ScheduleID:  common.Big0,
+					Beneficiary:   common.HexToAddress("0xa905CF052623eF4aB76b5ee32b4De81e9C9edfA6"),
+					Amount:        new(big.Int).Mul(big.NewInt(25_000), DecimalFactor),
+					ScheduleID:    common.Big0,
+					CliffDuration: big.NewInt(0),
 				},
 			},
 		},
-		StakableVestingConfig: &StakableVestingGenesis{
+		StakeableVestingConfig: &StakeableVestingGenesis{
 			TotalNominal: new(big.Int).Mul(big.NewInt(1_000_000), DecimalFactor),
-			StakableContracts: []StakableVestingData{
+			StakeableContracts: []StakeableVestingData{
 				{
 					Beneficiary:   common.HexToAddress("0xB0984E6bB363040394BcDdf317A27E3B9b064438"),
 					Amount:        new(big.Int).Mul(big.NewInt(100), DecimalFactor),
@@ -742,6 +746,7 @@ var (
 		MinBaseFee:              InitialBaseFee,
 		InitialInflationReserve: (*math.HexOrDecimal256)(new(big.Int).Mul(big.NewInt(40_000_000), NtnPrecision)),
 		Operator:                common.HexToAddress("0x12321"),
+		MaxScheduleDuration:     uint64(3 * SecondsInYear),
 	}
 
 	TestAccountabilityConfig = &AccountabilityGenesis{
@@ -783,8 +788,8 @@ var (
 			StabilizationContractConfig: DefaultStabilizationGenesis,
 			SupplyControlConfig:         DefaultSupplyControlGenesis,
 		},
-		DefaultNonStakableVestingGenesis,
-		DefaultStakableVestingGenesis,
+		DefaultNonStakeableVestingGenesis,
+		DefaultStakeableVestingGenesis,
 		false,
 	}
 )
@@ -891,14 +896,14 @@ type ChainConfig struct {
 	TerminalTotalDifficulty *big.Int `json:"terminalTotalDifficulty,omitempty"`
 
 	// Various consensus engines
-	Ethash                   *EthashConfig               `json:"ethash,omitempty"`
-	AutonityContractConfig   *AutonityContractGenesis    `json:"autonity,omitempty"`
-	AccountabilityConfig     *AccountabilityGenesis      `json:"accountability,omitempty"`
-	OracleContractConfig     *OracleContractGenesis      `json:"oracle,omitempty"`
-	InflationContractConfig  *InflationControllerGenesis `json:"inflation,omitempty"`
-	ASM                      AsmConfig                   `json:"asm,omitempty"`
-	NonStakableVestingConfig *NonStakableVestingGenesis  `json:"nonStakableVesting,omitempty"`
-	StakableVestingConfig    *StakableVestingGenesis     `json:"stakableVesting,omitempty"`
+	Ethash                    *EthashConfig               `json:"ethash,omitempty"`
+	AutonityContractConfig    *AutonityContractGenesis    `json:"autonity,omitempty"`
+	AccountabilityConfig      *AccountabilityGenesis      `json:"accountability,omitempty"`
+	OracleContractConfig      *OracleContractGenesis      `json:"oracle,omitempty"`
+	InflationContractConfig   *InflationControllerGenesis `json:"inflation,omitempty"`
+	ASM                       AsmConfig                   `json:"asm,omitempty"`
+	NonStakeableVestingConfig *NonStakeableVestingGenesis `json:"nonStakeableVesting,omitempty"`
+	StakeableVestingConfig    *StakeableVestingGenesis    `json:"stakeableVesting,omitempty"`
 
 	// true if run in testmode, false by default
 	TestMode bool `json:"testMode,omitempty"`
@@ -1153,12 +1158,14 @@ func (c *ChainConfig) Copy() *ChainConfig {
 			UnbondingPeriod:         c.AutonityContractConfig.UnbondingPeriod,
 			BlockPeriod:             c.AutonityContractConfig.BlockPeriod,
 			MaxCommitteeSize:        c.AutonityContractConfig.MaxCommitteeSize,
+			MaxScheduleDuration:     c.AutonityContractConfig.MaxScheduleDuration,
 			Operator:                c.AutonityContractConfig.Operator,
 			Treasury:                c.AutonityContractConfig.Treasury,
 			TreasuryFee:             c.AutonityContractConfig.TreasuryFee,
 			DelegationRate:          c.AutonityContractConfig.DelegationRate,
 			InitialInflationReserve: c.AutonityContractConfig.InitialInflationReserve,                                          // no deep copy needed
 			Validators:              append(c.AutonityContractConfig.Validators[:0:0], c.AutonityContractConfig.Validators...), // NEED DEEP COPY HERE
+			Schedules:               append(c.AutonityContractConfig.Schedules[:0:0], c.AutonityContractConfig.Schedules...),
 		}
 	}
 	if c.OracleContractConfig != nil {

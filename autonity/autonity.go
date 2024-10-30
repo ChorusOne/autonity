@@ -376,12 +376,12 @@ func (c *AutonityContract) CallContractFuncAs(statedb vm.StateDB, header *types.
 	return c.EVMContract.CallContractFuncAs(statedb, header, params.AutonityContractAddress, origin, packedArgs)
 }
 
-func (c *NonStakableVestingContract) CallContractFuncAs(statedb vm.StateDB, header *types.Header, origin common.Address, packedArgs []byte) ([]byte, error) {
-	return c.EVMContract.CallContractFuncAs(statedb, header, params.NonStakableVestingContractAddress, origin, packedArgs)
+func (c *NonStakeableVestingContract) CallContractFuncAs(statedb vm.StateDB, header *types.Header, origin common.Address, packedArgs []byte) ([]byte, error) {
+	return c.EVMContract.CallContractFuncAs(statedb, header, params.NonStakeableVestingContractAddress, origin, packedArgs)
 }
 
-func (c *StakableVestingContract) CallContractFuncAs(statedb vm.StateDB, header *types.Header, origin common.Address, packedArgs []byte) ([]byte, error) {
-	return c.EVMContract.CallContractFuncAs(statedb, header, params.StakableVestingContractAddress, origin, packedArgs)
+func (c *StakeableVestingManagerContract) CallContractFuncAs(statedb vm.StateDB, header *types.Header, origin common.Address, packedArgs []byte) ([]byte, error) {
+	return c.EVMContract.CallContractFuncAs(statedb, header, params.StakeableVestingManagerContractAddress, origin, packedArgs)
 }
 
 func (c *EVMContract) upgradeAbiCache(newAbi string) error {
@@ -453,11 +453,11 @@ type InflationControllerContract struct {
 	EVMContract
 }
 
-type StakableVestingContract struct {
+type StakeableVestingManagerContract struct {
 	EVMContract
 }
 
-type NonStakableVestingContract struct {
+type NonStakeableVestingContract struct {
 	EVMContract
 }
 
@@ -533,18 +533,18 @@ func NewGenesisEVMContract(genesisEvmProvider GenesisEVMProvider, statedb vm.Sta
 				chainConfig: chainConfig,
 			},
 		},
-		StakableVestingContract: StakableVestingContract{
+		StakeableVestingManagerContract: StakeableVestingManagerContract{
 			EVMContract{
 				evmProvider: evmProvider,
-				contractABI: &generated.StakableVestingAbi,
+				contractABI: &generated.StakeableVestingManagerAbi,
 				db:          db,
 				chainConfig: chainConfig,
 			},
 		},
-		NonStakableVestingContract: NonStakableVestingContract{
+		NonStakeableVestingContract: NonStakeableVestingContract{
 			EVMContract{
 				evmProvider: evmProvider,
-				contractABI: &generated.NonStakableVestingAbi,
+				contractABI: &generated.NonStakeableVestingAbi,
 				db:          db,
 				chainConfig: chainConfig,
 			},
@@ -562,8 +562,8 @@ type GenesisEVMContracts struct {
 	StabilizationContract
 	UpgradeManagerContract
 	InflationControllerContract
-	StakableVestingContract
-	NonStakableVestingContract
+	StakeableVestingManagerContract
+	NonStakeableVestingContract
 
 	statedb vm.StateDB
 }
@@ -639,34 +639,22 @@ func (c *GenesisEVMContracts) DeployInflationControllerContract(bytecode []byte,
 	return c.InflationControllerContract.DeployContract(nil, params.DeployerAddress, c.statedb, bytecode, param)
 }
 
-func (c *GenesisEVMContracts) DeployStakableVestingContract(bytecode []byte, autonityContract, operator common.Address) error {
-	return c.StakableVestingContract.DeployContract(nil, params.DeployerAddress, c.statedb, bytecode, autonityContract, operator)
+func (c *GenesisEVMContracts) DeployStakeableVestingContract(bytecode []byte, autonityContract common.Address) error {
+	return c.StakeableVestingManagerContract.DeployContract(nil, params.DeployerAddress, c.statedb, bytecode, autonityContract)
 }
 
-func (c *GenesisEVMContracts) SetStakableTotalNominal(totalNominal *big.Int) error {
-	return c.StakableVestingContract.SetTotalNominal(nil, c.statedb, totalNominal)
+func (c *GenesisEVMContracts) NewStakeableContract(contract params.StakeableVestingData) error {
+	return c.StakeableVestingManagerContract.NewContract(nil, c.statedb, contract)
 }
 
-func (c *GenesisEVMContracts) NewStakableContract(contract params.StakableVestingData) error {
-	return c.StakableVestingContract.NewContract(nil, c.statedb, contract)
+func (c *GenesisEVMContracts) DeployNonStakeableVestingContract(bytecode []byte, autonityContract common.Address) error {
+	return c.NonStakeableVestingContract.DeployContract(nil, params.DeployerAddress, c.statedb, bytecode, autonityContract)
 }
 
-func (c *GenesisEVMContracts) DeployNonStakableVestingContract(bytecode []byte, autonityContract, operator common.Address) error {
-	return c.NonStakableVestingContract.DeployContract(nil, params.DeployerAddress, c.statedb, bytecode, autonityContract, operator)
+func (c *GenesisEVMContracts) CreateSchedule(schedule params.Schedule) error {
+	return c.AutonityContract.CreateSchedule(nil, c.statedb, schedule.VaultAddress, schedule)
 }
 
-func (c *GenesisEVMContracts) SetNonStakableTotalNominal(totalNominal *big.Int) error {
-	return c.NonStakableVestingContract.SetTotalNominal(nil, c.statedb, totalNominal)
-}
-
-func (c *GenesisEVMContracts) SetMaxAllowedDuration(maxAllowedDuration *big.Int) error {
-	return c.NonStakableVestingContract.SetMaxAllowedDuration(nil, c.statedb, maxAllowedDuration)
-}
-
-func (c *GenesisEVMContracts) CreateNonStakableSchedule(schedule params.NonStakableSchedule) error {
-	return c.NonStakableVestingContract.CreateSchedule(nil, c.statedb, schedule)
-}
-
-func (c *GenesisEVMContracts) NewNonStakableContract(contract params.NonStakableVestingData) error {
-	return c.NonStakableVestingContract.NewContract(nil, c.statedb, contract)
+func (c *GenesisEVMContracts) NewNonStakeableContract(contract params.NonStakeableVestingData) error {
+	return c.NonStakeableVestingContract.NewContract(nil, c.statedb, contract)
 }

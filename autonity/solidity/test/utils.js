@@ -10,7 +10,7 @@ const Acu = artifacts.require("ACU")
 const SupplyControl = artifacts.require("SupplyControl")
 const Stabilization = artifacts.require("Stabilization")
 const InflationController = artifacts.require("InflationController")
-const NonStakableVesting = artifacts.require("NonStakableVesting")
+const NonStakeableVesting = artifacts.require("NonStakeableVesting")
 const AutonityTest = artifacts.require("AutonityTest");
 const mockEnodeVerifier = artifacts.require("MockEnodeVerifier")
 const mockCommitteeSelector = artifacts.require("MockCommitteeSelector")
@@ -230,16 +230,12 @@ async function initialize(autonity, autonityConfig, validators, accountabilityCo
 
   await supplyControl.setStabilizer(stabilization.address,{from:operator});
   
-  // non stakable contract
-  const nonStakableVesting = await NonStakableVesting.new(autonity.address, operator, {from: deployer})
-  
   await autonity.setAccountabilityContract(accountability.address, {from:operator});
   await autonity.setAcuContract(acu.address, {from: operator});
   await autonity.setSupplyControlContract(acu.address, {from: operator});
   await autonity.setStabilizationContract(acu.address, {from: operator});
   await autonity.setOracleContract(oracle.address, {from:operator});
   await autonity.setUpgradeManagerContract(upgradeManager.address, {from:operator});
-  await autonity.setNonStakableVestingContract(nonStakableVesting.address, {from: operator})
 }
 
 // deploys protocol contracts
