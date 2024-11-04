@@ -102,7 +102,10 @@ func TestReleaseFromStakeableContract(t *testing.T) {
 	end := contractTotalAmount + start
 	user := tests.User
 	setup := func() *tests.Runner {
-		return tests.Setup(t, nil)
+		r := tests.Setup(t, nil)
+		// setting test mode to speed up, we don't care about activity proofs nor AC permissioning here
+		r.Evm.ChainConfig().TestMode = true
+		return r
 	}
 	initiate := func(r *tests.Runner) (
 		userBalance *big.Int,
@@ -256,6 +259,8 @@ func TestBonding(t *testing.T) {
 	end := contractTotalAmount + start
 	setup := func() *tests.Runner {
 		r := tests.Setup(t, nil)
+		// setting test mode to speed up, we don't care about activity proofs nor AC permissioning here
+		r.Evm.ChainConfig().TestMode = true
 		return r
 	}
 	initiate := func(r *tests.Runner) (
@@ -477,7 +482,10 @@ func TestUnbonding(t *testing.T) {
 	bondingAmount := big.NewInt(contractTotalAmount / int64(validatorCount))
 
 	setup := func() *tests.Runner {
-		return tests.Setup(t, nil)
+		r := tests.Setup(t, nil)
+		// setting test mode to speed up, we don't care about activity proofs nor AC permissioning here
+		r.Evm.ChainConfig().TestMode = true
+		return r
 	}
 
 	initiate := func(r *tests.Runner) (
@@ -631,7 +639,10 @@ func TestRewardTracking(t *testing.T) {
 	contractCount := 2
 
 	setup := func() *tests.Runner {
-		return tests.Setup(t, nil)
+		r := tests.Setup(t, nil)
+		// setting test mode to speed up, we don't care about activity proofs nor AC permissioning here
+		r.Evm.ChainConfig().TestMode = true
+		return r
 	}
 
 	initiate := func(r *tests.Runner) (
@@ -708,7 +719,7 @@ func TestRewardTracking(t *testing.T) {
 		users, validators, liquidStateContracts = initiate(r)
 		// set commission rate = 0, so all rewards go to delegation
 		r.NoError(
-			r.Autonity.SetTreasuryFee(operator, common.Big0),
+			r.Autonity.SetTreasuryFee(r.Operator, common.Big0),
 		)
 		for _, validator := range r.Committee.Validators {
 			r.NoError(
@@ -1081,7 +1092,7 @@ func TestChangeContractBeneficiary(t *testing.T) {
 		require.Error(r.T, err)
 		require.Equal(r.T, "execution reverted: invalid contract id", err.Error())
 		r.NoError(
-			r.StakeableVestingManager.ChangeContractBeneficiary(operator, user, contractID, newUser),
+			r.StakeableVestingManager.ChangeContractBeneficiary(r.Operator, user, contractID, newUser),
 		)
 		beneficiary, _, err = stakeableContract.GetBeneficiary(nil)
 		require.NoError(r.T, err)
@@ -1112,7 +1123,7 @@ func TestChangeContractBeneficiary(t *testing.T) {
 
 		// change beneficiary
 		r.NoError(
-			r.StakeableVestingManager.ChangeContractBeneficiary(operator, user, contractID, newUser),
+			r.StakeableVestingManager.ChangeContractBeneficiary(r.Operator, user, contractID, newUser),
 		)
 		newAtnBalance := r.GetBalanceOf(user)
 		require.Equal(r.T, new(big.Int).Add(rewards.AtnRewards, atnBalance), newAtnBalance)
@@ -1134,7 +1145,6 @@ func TestSlashingAffect(t *testing.T) {
 	setup := func() *tests.Runner {
 		accountability.LoadPrecompiles()
 		r := tests.Setup(t, nil)
-		r.Evm.Context.GetHash = func(n uint64) common.Hash { return common.Hash{} }
 		createContract(r, user, contractTotalAmount, start, cliff, end)
 		return r
 	}
@@ -1150,7 +1160,7 @@ func TestSlashingAffect(t *testing.T) {
 		_, _, accountabilityContract, err = r.DeployAccountabilityTest(nil, r.Autonity.Address(), config)
 		require.NoError(r.T, err)
 		r.NoError(
-			r.Autonity.SetAccountabilityContract(operator, accountabilityContract.Address()),
+			r.Autonity.SetAccountabilityContract(r.Operator, accountabilityContract.Address()),
 		)
 
 		offender = r.Committee.Validators[0].NodeAddress
@@ -1486,7 +1496,7 @@ func TestFunctions(t *testing.T) {
 		require.NoError(r.T, err)
 		r.NoError(
 			r.Autonity.Mint(
-				operator,
+				r.Operator,
 				contract.Address(),
 				big.NewInt(contractTotalAmount),
 			),
@@ -1907,7 +1917,7 @@ func createContract(r *tests.Runner, beneficiary common.Address, amount, startTi
 	endBig := big.NewInt(endTime)
 	r.NoError(
 		r.StakeableVestingManager.NewContract(
-			operator, beneficiary, big.NewInt(amount), big.NewInt(startTime),
+			r.Operator, beneficiary, big.NewInt(amount), big.NewInt(startTime),
 			new(big.Int).Sub(cliffBig, startBig), new(big.Int).Sub(endBig, startBig),
 		),
 	)
