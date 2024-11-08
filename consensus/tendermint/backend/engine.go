@@ -88,7 +88,7 @@ func (sb *Backend) VerifyHeader(chain consensus.ChainHeaderReader, header *types
 	}
 
 	// get the epoch information for the header we are verifying
-	epoch, err := chain.EpochOfHeight(header.Number.Uint64(), nil)
+	epoch, err := chain.EpochByHeight(header.Number.Uint64())
 	if err != nil {
 		return fmt.Errorf("cannot fetch epoch information for height %d: %w", header.Number.Uint64(), err)
 	}
@@ -240,7 +240,7 @@ func (sb *Backend) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*t
 
 	go func() {
 		firstHeight := headers[0].Number.Uint64()
-		epoch, err := chain.EpochOfHeight(firstHeight, nil)
+		epoch, err := chain.EpochByHeight(firstHeight)
 		// short circuit, if we cannot find the correct epoch for the 1st header, we quit this batch of verification.
 		if err != nil {
 			sb.logger.Error("VerifyHeaders", "cannot find epoch for the 1st header of the batch: ", err.Error(), "height", firstHeight)
@@ -259,11 +259,14 @@ func (sb *Backend) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*t
 			}
 
 			if parent == nil {
-				sb.logger.Error("VerifyHeaders", "cannot find parent header", header.ParentHash)
 				err = consensus.ErrUnknownAncestor
 			} else {
 				// check header against parent and parent epoch head.
 				err = sb.verifyHeader(chainConfig, header, parent, epoch, hash)
+			}
+
+			if err != nil {
+				sb.logger.Error("VerifyHeaders", "Error verifying header", "error", err)
 			}
 
 			// cross epoch header check, update the committee and epoch boundary if current header is an epoch head.
@@ -345,17 +348,18 @@ func (sb *Backend) Prepare(_ consensus.ChainHeaderReader, parentHeader, header *
 		header.Time = uint64(time.Now().Unix())
 	}
 
-	height := header.Number.Uint64()
-	// use a custom fetcher to be able to fetch epoch information in the case we are building an optimistic block at the epoch boundary
-	epochInfo, err := sb.BlockChain().EpochOfHeight(height, func() (*types.Header, *state.StateDB, error) {
-		return parentHeader, parentState, nil
-	})
+	// try fetching from the chain, this would fail on epoch boundary
+	epochInfo, err := sb.EpochByHeight(header.Number.Uint64())
 	if err != nil {
-		return fmt.Errorf("error while fetching epoch information for height %d: %w", height, err)
+		// we are expected to land here on epoch boundaries
+		epochInfo, err = sb.blockchain.ProtocolContracts().EpochByHeight(parentHeader, parentState, header.Number)
+		if err != nil {
+			return fmt.Errorf("error while fetching epoch information for height %d: %w", header.Number.Uint64(), err)
+		}
 	}
 
 	// assemble nodes' activity proof of height h from the msgs of h-delta
-	proof, round, err := sb.assembleActivityProof(height, epochInfo)
+	proof, round, err := sb.assembleActivityProof(header.Number.Uint64(), epochInfo)
 	if err != nil {
 		return fmt.Errorf("error while assembling activity proof: %w", err)
 	}
@@ -456,15 +460,6 @@ func (sb *Backend) AutonityContractFinalize(header *types.Header, chain consensu
 	}
 
 	return receipt, epochInfo, nil
-}
-
-func (sb *Backend) EpochByHeight(height *big.Int) (*types.EpochInfo, error) {
-	header := sb.BlockChain().CurrentHeader()
-	stateDB, err := sb.blockchain.StateAt(header.Root)
-	if err != nil {
-		return nil, err
-	}
-	return sb.BlockChain().ProtocolContracts().EpochByHeight(header, stateDB, height)
 }
 
 // Seal generates a new block for the given input block with the local miner's

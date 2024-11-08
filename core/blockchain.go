@@ -207,12 +207,6 @@ type BlockChain struct {
 	// Readers don't need to take it, they can just read the database.
 	chainmu *syncx.ClosableMutex
 
-	// Current head epoch block of the blockchain, it is the latest epoch block that was inserted to blockchain.
-	// This epoch block of the blockchain can grow slower than the epoch head of header chain in some sync mode, i.e.
-	// in snap sync the header chain can grow faster than the blockchain. Thus, we create two different references
-	// of epoch head for the blockchain synchronization context and the header chain synchronization context.
-	currentEpochBlock atomic.Value
-
 	currentBlock     atomic.Value // Current head of the blockchain
 	currentFastBlock atomic.Value // Current head of the fast-sync chain (may be above the block chain!)
 
@@ -309,7 +303,6 @@ func NewBlockChain(db ethdb.Database,
 
 	var nilBlock *types.Block
 	bc.currentBlock.Store(nilBlock)
-	bc.currentEpochBlock.Store(nilBlock)
 	bc.currentFastBlock.Store(nilBlock)
 
 	// Initialize the chain with ancient data if it isn't empty.
@@ -325,6 +318,7 @@ func NewBlockChain(db ethdb.Database,
 		}
 	}
 	if err := bc.loadLastState(); err != nil {
+		bc.log.Error("new blockchain", "loadstate failure", "error", err)
 		return nil, err
 	}
 
@@ -518,23 +512,6 @@ func (bc *BlockChain) loadLastState() error {
 	bc.currentBlock.Store(currentBlock)
 	headBlockGauge.Update(int64(currentBlock.NumberU64()))
 
-	// Restore the last known epoch head block
-	epochHead := rawdb.ReadEpochBlockHash(bc.db)
-	if epochHead == (common.Hash{}) {
-		// Corrupt or empty database, init from scratch
-		bc.log.Warn("Empty database, resetting chain")
-		return bc.Reset()
-	}
-	// Make sure the entire head epoch block is available
-	epochBlock := bc.GetBlockByHash(epochHead)
-	if epochBlock == nil {
-		// Corrupt or empty database, init from scratch
-		bc.log.Warn("Epoch head block missing, resetting chain", "hash", head)
-		return bc.Reset()
-	}
-	// Everything seems to be fine, set as the head epoch block
-	bc.currentEpochBlock.Store(epochBlock)
-
 	// Restore the last known head header
 	currentHeader := currentBlock.Header()
 	if head := rawdb.ReadHeadHeaderHash(bc.db); head != (common.Hash{}) {
@@ -619,7 +596,7 @@ func (bc *BlockChain) setHeadBeyondRoot(head uint64, root common.Hash, repair bo
 						beyondRoot, rootNumber = true, newHeadBlock.NumberU64()
 					}
 					if _, err := state.New(newHeadBlock.Root(), bc.stateCache, bc.snaps); err != nil {
-						bc.log.Trace("Block state missing, rewinding further", "number", newHeadBlock.NumberU64(), "hash", newHeadBlock.Hash())
+						bc.log.Trace("Block state missing, rewinding further", "number", newHeadBlock.NumberU64(), "hash", newHeadBlock.Hash(), "err", err)
 						if pivot == nil || newHeadBlock.NumberU64() > *pivot {
 							parent := bc.GetBlock(newHeadBlock.ParentHash(), newHeadBlock.NumberU64()-1)
 							if parent != nil {
@@ -749,12 +726,10 @@ func (bc *BlockChain) SnapSyncCommitHead(hash common.Hash) error {
 	// update epoch header markers as well if the pivot block is an epoch head.
 	if block.IsEpochHead() {
 		batch := bc.db.NewBatch()
-		rawdb.WriteEpochBlockHash(batch, block.Hash())
 		rawdb.WriteEpochHeaderHash(batch, block.Hash())
 		if err := batch.Write(); err != nil {
 			bc.log.Crit("Failed to update epoch header markers", "err", err)
 		}
-		bc.currentEpochBlock.Store(block)
 		bc.hc.SetCurrentHeadEpochHeader(block.Header())
 		headEpochHeaderGauge.Update(int64(block.NumberU64()))
 	}
@@ -798,7 +773,6 @@ func (bc *BlockChain) ResetWithGenesisBlock(genesis *types.Block) error {
 	// Last update all in-memory chain markers
 	bc.genesisBlock = genesis
 	bc.currentBlock.Store(bc.genesisBlock)
-	bc.currentEpochBlock.Store(bc.genesisBlock)
 	headBlockGauge.Update(int64(bc.genesisBlock.NumberU64()))
 	bc.hc.SetGenesis(bc.genesisBlock.Header())
 	bc.hc.SetCurrentHeader(bc.genesisBlock.Header())
@@ -853,7 +827,6 @@ func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	batch := bc.db.NewBatch()
 	// update head epoch markers in DB for both blockchain and the header chain.
 	if block.IsEpochHead() {
-		rawdb.WriteEpochBlockHash(batch, block.Hash())
 		rawdb.WriteEpochHeaderHash(batch, block.Hash())
 	}
 	rawdb.WriteHeadHeaderHash(batch, block.Hash())
@@ -870,7 +843,6 @@ func (bc *BlockChain) writeHeadBlock(block *types.Block) {
 	// Update all in-memory chain markers in the last step
 	bc.hc.SetCurrentHeader(block.Header())
 	if block.IsEpochHead() {
-		bc.currentEpochBlock.Store(block)
 		bc.hc.SetCurrentHeadEpochHeader(block.Header())
 		headEpochHeaderGauge.Update(int64(block.NumberU64()))
 	}

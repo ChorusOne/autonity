@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru"
+
 	"github.com/autonity/autonity/common"
 	"github.com/autonity/autonity/consensus"
 	"github.com/autonity/autonity/core/rawdb"
@@ -34,7 +36,6 @@ import (
 	"github.com/autonity/autonity/log"
 	"github.com/autonity/autonity/params"
 	"github.com/autonity/autonity/rlp"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 const (
@@ -550,7 +551,7 @@ func (hc *HeaderChain) GetHeaderByNumber(number uint64) *types.Header {
 	return hc.GetHeader(hash, number)
 }
 
-func (hc *HeaderChain) EpochOfHeight(height uint64, _ consensus.HeaderWithStateFn) (*types.EpochInfo, error) {
+func (hc *HeaderChain) EpochByHeight(height uint64) (*types.EpochInfo, error) {
 	epochHead := hc.CurrentHeadEpochHeader()
 	if epochHead == nil {
 		return nil, ErrMissingEpochHeader
@@ -559,8 +560,24 @@ func (hc *HeaderChain) EpochOfHeight(height uint64, _ consensus.HeaderWithStateF
 	// as header chain does not have the state db, thus we cannot query it from state db.
 	// In this case, we just return this error which means the caller should discard the batch of headers,
 	// and the protocol will start another batch of sync with the correct head.
-	if height <= epochHead.Number.Uint64() || height > epochHead.Epoch.NextEpochBlock.Uint64() {
+	if height > epochHead.Epoch.NextEpochBlock.Uint64() {
 		return nil, consensus.ErrOutOfEpochRange
+	}
+
+	for {
+		if epochHead.Number.Uint64() == 0 {
+			break
+		}
+		if height > epochHead.Number.Uint64() && height <= epochHead.Epoch.NextEpochBlock.Uint64() {
+			break
+		}
+		epochHeadNum := epochHead.Epoch.PreviousEpochBlock.Uint64()
+		epochHead = hc.GetHeaderByNumber(epochHeadNum)
+		if epochHead == nil {
+			// must not happen
+			log.Error("EpochByHeight", "epoch Head", "nil")
+			return nil, consensus.ErrOutOfEpochRange
+		}
 	}
 
 	epoch := &types.EpochInfo{
@@ -698,7 +715,6 @@ func (hc *HeaderChain) SetHead(head uint64, updateFn UpdateHeadBlocksCallback, d
 			}
 			// reset both the epoch markers of blockchain and header chain, the epoch head
 			// in-memory marker of blockchain is reset when rewind is done.
-			rawdb.WriteEpochBlockHash(markerBatch, newHeadEpochHeader.Hash())
 			rawdb.WriteEpochHeaderHash(markerBatch, newHeadEpochHeader.Hash())
 			hc.currentEpochHeader.Store(newHeadEpochHeader)
 			headEpochHeaderGauge.Update(newHeadEpochHeader.Number.Int64())
