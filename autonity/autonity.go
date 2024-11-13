@@ -124,9 +124,8 @@ func newCache(ac *AutonityContract, head *types.Header, state vm.StateDB) (*Cach
 //revive:disable:exported - Autonity is one of the contracts, so repetitive naming here is justified
 type AutonityContract struct {
 	EVMContract
-	*AutonityFilterer // allows to watch for Autonity Contract events
-
-	proposers map[uint64]map[int64]common.Address // map[height][round] --> proposer
+	*AutonityFilterer                                     // allows to watch for Autonity Contract events
+	proposers         map[uint64]map[int64]common.Address // map[height][round] --> proposer
 }
 
 type ProtocolContracts struct {
