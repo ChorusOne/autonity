@@ -13,6 +13,10 @@ on:
       - reopened          # default
       - ready_for_review  # added, makes it so that when a PR gets marked as rfr, contract tests execute
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # We don't have access to the HOME environment variable here since we are not
   # inside a runner at this point, so we just have to hardcode '/home/runner',
