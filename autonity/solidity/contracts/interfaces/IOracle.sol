@@ -12,9 +12,15 @@ interface IOracle {
     */
     struct RoundData {
         uint256 round;
-        int256 price;
+        uint256 price;
         uint timestamp;
         bool success;
+    }
+
+    struct Report {
+        // uint120 can hold values up to approximately 1.3x10^36
+        uint120 price;
+        uint8 confidence;
     }
 
     /**
@@ -29,6 +35,7 @@ interface IOracle {
      * Need to be called by the Oracle Server as part of the init.
      */
     function getSymbols() external view returns(string[] memory _symbols);
+
     /**
      * @notice Vote for the prices with a commit-reveal scheme.
      *
@@ -40,7 +47,8 @@ interface IOracle {
      * respect the list of symbols returned by {getSymbols}.
      *
      */
-    function vote(uint256 _commit, int256[] memory _reports, uint256 _salt ) external;
+    function vote(uint256 _commit,  Report[] calldata _reports, uint256 _salt, uint8 _extra) external;
+
     /**
      * @notice Get data about a specific round, using the roundId.
      */
@@ -60,10 +68,23 @@ interface IOracle {
     function finalize() external returns (bool);
 
     /**
+     * @notice Called when the previous round is ended. Updates the voter info for new voters.
+     * @dev Only accessible from the Autonity Contract.
+     */
+    function updateVoters() external;
+
+
+    /**
+    * @dev Signal that rewards are available. Only accessible from the autonity contract.
+    *
+    */
+    function distributeRewards(uint256 _ntnRewards) external payable;
+
+    /**
      * @notice Called to update the list of the oracle voters.
      * @dev Only accessible from the Autonity Contract.
      */
-    function setVoters(address[] memory _newVoters) external;
+    function setVoters(address[] memory _newVoters, address[] memory _treasury, address[] memory _validator) external;
 
     /**
      * @notice Called to update the governance operator account.
@@ -75,29 +96,39 @@ interface IOracle {
     * @notice Retrieve the vote period.
     */
     function getVotePeriod() external view returns (uint);
+
     /**
     * @notice Retrieve the current voters in the committee.
     */
     function getVoters() external view returns(address[] memory);
+
+    /**
+    * @notice Retrieve the new voters in the committee.
+    */
+    function getNewVoters() external view returns(address[] memory);
+
     /**
      * @notice Retrieve the current round ID.
     */
     function getRound() external view returns (uint256);
+
     /**
-    * @notice Precision to be used with price reports
+    * @notice Scale to be used with price reports
     */
-    function getPrecision() external view returns (uint256);
+    function getDecimals() external view returns (uint8);
 
 
     /**
      * @dev Emitted when a vote has been succesfully accounted after a {vote} call.
      */
     event Voted(address indexed _voter, int[] _votes);
+
     /**
      * @dev Emitted when a vote has been succesfully accounted after a {vote} call.
      * round - the round at which new symbols are effective
      */
     event NewSymbols(string[] _symbols, uint256 _round);
+
     /**
      * @dev Emitted when a new voting round is started.
      * round - the new round ID
@@ -106,4 +137,13 @@ interface IOracle {
      * votePeriod - the round period in blocks for the price voting and aggregation.
      */
     event NewRound(uint256 _round, uint256 _height, uint256 _timestamp, uint _votePeriod);
+
+    /**
+     * @dev Emitted when a participant gets penalized as an outlier
+     * @param _participant Oracle address of the validator
+     * @param _symbol Outlier symbol.
+     * @param _median Median price calculate for this symbol.
+     * @param _reported Reported outlier price.
+     */
+    event Penalized(address indexed _participant, string _symbol, int256 _median, uint120 _reported);
 }

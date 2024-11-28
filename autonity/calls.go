@@ -278,6 +278,7 @@ func DeployAutonityContract(genesisConfig *params.AutonityContractGenesis, genes
 			InitialInflationReserve: (*big.Int)(genesisConfig.InitialInflationReserve),
 			WithholdingThreshold:    new(big.Int).SetUint64(genesisConfig.WithholdingThreshold),
 			ProposerRewardRate:      new(big.Int).SetUint64(genesisConfig.ProposerRewardRate),
+			OracleRewardRate:        new(big.Int).SetUint64(genesisConfig.OracleRewardRate),
 			WithheldRewardsPool:     genesisConfig.WithheldRewardsPool,
 			TreasuryAccount:         genesisConfig.Treasury,
 		},
@@ -350,16 +351,28 @@ func DeployAutonityContract(genesisConfig *params.AutonityContractGenesis, genes
 
 func DeployOracleContract(genesisConfig *params.ChainConfig, evmContracts *GenesisEVMContracts) error {
 	voters := make([]common.Address, len(genesisConfig.AutonityContractConfig.Validators))
-	for _, val := range genesisConfig.AutonityContractConfig.Validators {
-		voters = append(voters, val.OracleAddress)
+	treasuries := make([]common.Address, len(genesisConfig.AutonityContractConfig.Validators))
+	nodeAddresses := make([]common.Address, len(genesisConfig.AutonityContractConfig.Validators))
+
+	for i, val := range genesisConfig.AutonityContractConfig.Validators {
+		voters[i] = val.OracleAddress
+		treasuries[i] = val.Treasury
+		nodeAddresses[i] = *val.NodeAddress
 	}
 
 	err := evmContracts.DeployOracleContract(
 		voters,
-		params.AutonityContractAddress,
-		genesisConfig.AutonityContractConfig.Operator,
+		nodeAddresses,
+		treasuries,
 		genesisConfig.OracleContractConfig.Symbols,
-		new(big.Int).SetUint64(genesisConfig.OracleContractConfig.VotePeriod),
+		OracleConfig{
+			Autonity:                  params.AutonityContractAddress,
+			Operator:                  genesisConfig.AutonityContractConfig.Operator,
+			VotePeriod:                new(big.Int).SetUint64(genesisConfig.OracleContractConfig.VotePeriod),
+			OutlierDetectionThreshold: new(big.Int).SetUint64(genesisConfig.OracleContractConfig.OutlierDetectionThreshold),
+			OutlierSlashingThreshold:  new(big.Int).SetUint64(genesisConfig.OracleContractConfig.OutlierSlashingThreshold),
+			BaseSlashingRate:          new(big.Int).SetUint64(genesisConfig.OracleContractConfig.BaseSlashingRate),
+		},
 		genesisConfig.OracleContractConfig.Bytecode,
 	)
 	if err != nil {

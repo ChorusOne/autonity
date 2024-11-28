@@ -129,6 +129,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         uint256 initialInflationReserve;
         uint256 withholdingThreshold;
         uint256 proposerRewardRate; // fraction of epoch fees allocated for proposer rewarding based on activity proof
+        uint256 oracleRewardRate;
         address payable withheldRewardsPool; // set to the autonity global treasury at genesis, but can be changed
         address payable treasuryAccount;
     }
@@ -529,24 +530,56 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         config.protocol.committeeSize = _size;
     }
 
-    /*
-    * @notice Set the unbonding period. Restricted to the Operator account.
-    * @param _size Positive integer.
-    */
+    /**
+     * @notice Sets the unbonding period for the policy configuration.
+     * @dev Can only be called by an operator. Updates `config.policy.unbondingPeriod`.
+     * @param _period The new unbonding period, in blocks.
+     */
     function setUnbondingPeriod(uint256 _period) public virtual onlyOperator {
         config.policy.unbondingPeriod = _period;
     }
 
+    /**
+     * @notice Sets the proposer reward rate for the policy configuration.
+     * @dev Can only be called by an operator. Updates `config.policy.proposerRewardRate`.
+     *     - The reward rate must not exceed `STANDARD_SCALE_FACTOR` (100%).
+     *     - The proposer reward rate plus the oracle reward rate must not exceed 100%
+     * @param _proposerRewardRate The new reward rate for proposers (scaled by `STANDARD_SCALE_FACTOR`).
+     */
     function setProposerRewardRate(uint256 _proposerRewardRate) public virtual onlyOperator {
         require(_proposerRewardRate <= STANDARD_SCALE_FACTOR, "Cannot exceed 100%");
         config.policy.proposerRewardRate = _proposerRewardRate;
     }
 
+    /**
+     * @notice Sets the oracle reward rate for the policy configuration.
+     * @dev Can only be called by an operator. Updates `config.policy.oracleRewardRate`.
+     *      - The reward rate must not exceed `STANDARD_SCALE_FACTOR` (100%).
+     *      - The proposer reward rate plus the oracle reward rate must not exceed 100%
+     * @param _oracleRewardRate The new reward rate for oracles (scaled by `STANDARD_SCALE_FACTOR`).
+     */
+    function setOracleRewardRate(uint256 _oracleRewardRate) public virtual onlyOperator {
+        require(_oracleRewardRate <= STANDARD_SCALE_FACTOR, "Cannot exceed 100%");
+        config.policy.oracleRewardRate = _oracleRewardRate;
+    }
+
+    /**
+     * @notice Sets the withholding threshold for the policy configuration.
+     * @dev Can only be called by an operator. Updates `config.policy.withholdingThreshold`.
+     *      The threshold must not exceed `STANDARD_SCALE_FACTOR` (100%).
+     * @param _withholdingThreshold The new withholding threshold (scaled by `STANDARD_SCALE_FACTOR`).
+     */
     function setWithholdingThreshold(uint256 _withholdingThreshold) public virtual onlyOperator {
         require(_withholdingThreshold <= STANDARD_SCALE_FACTOR, "Cannot exceed 100%");
         config.policy.withholdingThreshold = _withholdingThreshold;
     }
 
+    /**
+     * @notice Sets the address of the pool to which withheld rewards will be sent.
+     * @dev Can only be called by an operator. Updates `config.policy.withheldRewardsPool`.
+     *      The provided address must not be the zero address.
+     * @param _pool The address of the withheld rewards pool.
+     */
     function setWithheldRewardsPool(address payable _pool) public virtual onlyOperator {
         require(_pool != address(0), "pool cannot be zero address");
         config.policy.withheldRewardsPool = _pool;
@@ -560,7 +593,11 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         uint256 _lookbackWindow = config.contracts.omissionAccountabilityContract.getLookbackWindow();
         uint256 _delta = config.contracts.omissionAccountabilityContract.getDelta();
         require(_period > 0, "epoch period cannot be 0");
-        require(_period > _delta + _lookbackWindow -1, "epoch period needs to be greater than delta+lookbackWindow-1");
+        require(_period > _delta + _lookbackWindow - 1, "epoch period needs to be greater than delta+lookbackWindow-1");
+
+        // we need this check to update new voters at the end of voting round
+        uint256 _votePeriod = config.contracts.oracleContract.getVotePeriod();
+        require(_votePeriod * 2 <= _period, "epoch period is too small");
 
         newEpochPeriod = _period;
         uint256 _appliedAtBlock = epochInfos[epochID].nextEpochBlock;
@@ -782,8 +819,11 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
 
         // use >= instead of == to facilitate tests on truffle
         bool _epochEnded = block.number >= epochInfos[epochID].nextEpochBlock;
+
+        // finalize all auxiliary contracts
         config.contracts.accountabilityContract.finalize(_epochEnded);
         uint256 _delta = config.contracts.omissionAccountabilityContract.finalize(_epochEnded);
+        bool newRound = config.contracts.oracleContract.finalize();
 
         if (_epochEnded) {
             // We first calculate the new NTN injected supply for this epoch
@@ -793,7 +833,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
                 lastEpochTime,
                 block.timestamp
             );
-            if (inflationReserve < _inflationReward){
+            if (inflationReserve < _inflationReward) {
                 // If this code path is taken there is something deeply wrong happening in the inflation controller
                 // contract.
                 _inflationReward = inflationReserve;
@@ -811,7 +851,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
 
             // compute the committee for new epoch
             (address[] memory _newOracles, address[] memory _newCommittee, address[] memory _newTreasuries) = computeCommittee();
-            config.contracts.oracleContract.setVoters(_newOracles);
+            config.contracts.oracleContract.setVoters(_newOracles, _newTreasuries, _newCommittee);
             config.contracts.accountabilityContract.setCommittee(_newCommittee);
             config.contracts.omissionAccountabilityContract.setCommittee(committee, _newTreasuries);
 
@@ -831,8 +871,8 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             emit NewEpoch(epochID);
         }
 
-        bool newRound = config.contracts.oracleContract.finalize();
         if (newRound) {
+            config.contracts.oracleContract.updateVoters();
             try config.contracts.acuContract.update() {}
             catch {}
         }
@@ -853,7 +893,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             mstore(input, validatorList.slot)
             mstore(add(input, 0x20), validators.slot)
             mstore(add(input, 0x40), committee.slot)
-            mstore(add(input,0x60), epochTotalBondedStake.slot)
+            mstore(add(input, 0x60), epochTotalBondedStake.slot)
         }
         Precompiled.computeCommitteePrecompiled(input);
         // get oracle address of committee members
@@ -992,10 +1032,9 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     }
 
     function setSlasher(address _slasher) public virtual onlyOperator {
-        require(_slasher != address(0),"slasher contract cannot be the zero address");
+        require(_slasher != address(0), "slasher contract cannot be the zero address");
         slasher = ISlasher(_slasher);
     }
-
 
     /*
     ============================================================
@@ -1009,7 +1048,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     * @notice Returns the epoch period. If there will be an update at epoch end, the new epoch period is returned
     */
     function getEpochPeriod() external view virtual returns (uint256) {
-            return newEpochPeriod;
+        return newEpochPeriod;
     }
 
     /**
@@ -1173,7 +1212,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     */
     // todo: Jason, add some test for this function by using the new contract test framework.
     function getEpochByHeight(uint256 _height) public view virtual returns (EpochInfo memory) {
-        require(_height <= lastFinalizedBlock+1, "cannot get epoch for a future block");
+        require(_height <= lastFinalizedBlock + 1, "cannot get epoch for a future block");
 
         uint256 blockEpochID = epochID;
         // if the block was already finalized, resolve its corresponding epoch id.
@@ -1189,7 +1228,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
      * @param _block the input block number.
      */
     function getEpochFromBlock(uint256 _block) external view virtual returns (uint256) {
-        require(_block <= lastFinalizedBlock+1, "cannot get epoch id for a future block");
+        require(_block <= lastFinalizedBlock + 1, "cannot get epoch id for a future block");
 
         if (_block <= lastFinalizedBlock) {
             return blockEpochMap[_block];
@@ -1241,7 +1280,9 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     * This should be abstracted by a separate smart-contract.
     */
     modifier onlyAccountability {
-        require(address(config.contracts.accountabilityContract) == msg.sender || address(config.contracts.omissionAccountabilityContract) == msg.sender, "caller is not an accountability contract");
+        require(address(config.contracts.accountabilityContract) == msg.sender
+        || address(config.contracts.omissionAccountabilityContract) == msg.sender
+        || address(config.contracts.oracleContract) == msg.sender, "caller is not an accountability contract");
         _;
     }
 
@@ -1250,6 +1291,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             address(config.contracts.accountabilityContract) == msg.sender
             || address(config.contracts.omissionAccountabilityContract) == msg.sender
             || address(validators[_validator].liquidStateContract) == msg.sender
+            || address(config.contracts.oracleContract) == msg.sender
             , "caller is not a reward distributor"
         );
         _;
@@ -1281,7 +1323,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     * @dev Emit a {Rewarded} event for every account that collected rewards.
     * @param _atn: Amount of ATN to be redistributed. The source funds will be taken from
     * this contract balance.
-    * @param _ntn: Amount of NTN to be redistributed. The source funds will be minted here.
+    * @param _ntn: Amount of NTN to be redistributed.
     */
     function _performRedistribution(uint256 _atn, uint256 _ntn) internal virtual {
         // exit early if nothing to redistribute.
@@ -1298,16 +1340,20 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             }
         }
 
+        // first we need to reduce total _atn and _ntn by the oracle and proposer rewards
         uint256 _atnProposerRewards;
         uint256 _ntnProposerRewards;
+        uint256 _atnOracleRewards = _atn * config.policy.oracleRewardRate / STANDARD_SCALE_FACTOR;
+        uint256 _ntnOracleRewards = _ntn * config.policy.oracleRewardRate / STANDARD_SCALE_FACTOR;
 
         if (config.contracts.omissionAccountabilityContract.getTotalEffort() > 0) {
             // Calculate initial proposer rewards (actual distribution is done after regular rewards)
             _atnProposerRewards = (_atn * config.policy.proposerRewardRate * committee.length) / (STANDARD_SCALE_FACTOR * config.protocol.committeeSize);
             _ntnProposerRewards = (_ntn * config.policy.proposerRewardRate * committee.length) / (STANDARD_SCALE_FACTOR * config.protocol.committeeSize);
-            _atn -= _atnProposerRewards;
-            _ntn -= _ntnProposerRewards;
         }
+
+        _atn -= _atnOracleRewards + _atnProposerRewards;
+        _ntn -= _ntnOracleRewards + _ntnProposerRewards;
 
         uint256 _omissionScaleFactor = config.contracts.omissionAccountabilityContract.getScaleFactor();
 
@@ -1400,6 +1446,11 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             _transfer(address(this), _omission, _ntnProposerRewards);
             config.contracts.omissionAccountabilityContract.distributeProposerRewards{value: _atnProposerRewards}(accounts[_omission]);
         }
+
+        _transfer(address(this), address(config.contracts.oracleContract), _ntnOracleRewards);
+        config.contracts.oracleContract.distributeRewards{value: _atnOracleRewards}(
+            accounts[address(config.contracts.oracleContract)]
+        );
 
         // send withheld funds to the appropriate pool
         if (_atnTotalWithheld > 0) {
@@ -1496,14 +1547,14 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         bytes32 s;
         uint8 v;
         // 1st batch bytes are signatures generated by node key and oracle node key.
-        bytes memory ecdsaSignatures = BytesLib.slice(_signatures, 0, ECDSA_SIGNATURE_LEN*2);
+        bytes memory ecdsaSignatures = BytesLib.slice(_signatures, 0, ECDSA_SIGNATURE_LEN * 2);
         // 2nd batch of rest 96 bytes are the signature generated by validator BLS key.
-        bytes memory blsSignature = BytesLib.slice(_signatures, ECDSA_SIGNATURE_LEN*2, BLS_PROOF_LEN);
+        bytes memory blsSignature = BytesLib.slice(_signatures, ECDSA_SIGNATURE_LEN * 2, BLS_PROOF_LEN);
 
         //start from 32th byte to skip the encoded length field from the bytes type variable
         for (uint i = 32; i < ecdsaSignatures.length; i += ECDSA_SIGNATURE_LEN) {
             (r, s, v) = Helpers.extractRSV(ecdsaSignatures, i);
-            signers[i/ECDSA_SIGNATURE_LEN] = ecrecover(hashedData, v, r, s);
+            signers[i / ECDSA_SIGNATURE_LEN] = ecrecover(hashedData, v, r, s);
         }
         require(signers[0] == _validator.nodeAddress, "Invalid node key ownership proof provided");
         require(signers[1] == _validator.oracleAddress, "Invalid oracle key ownership proof provided");
@@ -1547,7 +1598,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
 
         bool _selfBonded = validators[_validator].treasury == _recipient;
         emit NewBondingRequest(_validator, _recipient, _selfBonded, _amount);
-        return headBondingID-1;
+        return headBondingID - 1;
     }
 
     function _applyBonding(uint256 id) internal virtual {
@@ -1594,7 +1645,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     function _unbond(address _validatorAddress, uint256 _amount, address payable _recipient) internal virtual returns (uint256) {
         Validator storage _validator = validators[_validatorAddress];
         bool selfDelegation = _recipient == _validator.treasury;
-        if(!selfDelegation) {
+        if (!selfDelegation) {
             // Lock LNTN if it was issued (non self-delegated stake case)
             uint256 liqBalance = _validator.liquidStateContract.unlockedBalanceOf(_recipient);
             require(liqBalance >= _amount, "insufficient unlocked Liquid Newton balance");
@@ -1612,7 +1663,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         headUnbondingID++;
 
         emit NewUnbondingRequest(_validatorAddress, _recipient, selfDelegation, _amount);
-        return headUnbondingID-1;
+        return headUnbondingID - 1;
     }
 
     function _releaseUnbondingStake(uint256 _id) internal virtual {
@@ -1623,12 +1674,12 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         }
         Validator storage _validator = validators[_unbonding.delegatee];
         uint256 _returnedStake;
-        if(!_unbonding.selfDelegation){
-            _returnedStake =  (_unbonding.unbondingShare *  _validator.unbondingStake) / _validator.unbondingShares;
+        if (!_unbonding.selfDelegation) {
+            _returnedStake = (_unbonding.unbondingShare * _validator.unbondingStake) / _validator.unbondingShares;
             _validator.unbondingStake -= _returnedStake;
             _validator.unbondingShares -= _unbonding.unbondingShare;
         } else {
-            _returnedStake =  (_unbonding.unbondingShare *  _validator.selfUnbondingStake) / _validator.selfUnbondingShares;
+            _returnedStake = (_unbonding.unbondingShare * _validator.selfUnbondingStake) / _validator.selfUnbondingShares;
             _validator.selfUnbondingStake -= _returnedStake;
             _validator.selfUnbondingShares -= _unbonding.unbondingShare;
         }
@@ -1640,7 +1691,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         Validator storage _validator = validators[_unbonding.delegatee];
 
         uint256 _newtonAmount;
-        if (!_unbonding.selfDelegation){
+        if (!_unbonding.selfDelegation) {
             // Step 1: Unlock and burn requested liquid newtons
             uint256 _liquidAmount = _unbonding.amount;
             _validator.liquidStateContract.unlock(_unbonding.delegator, _liquidAmount);
@@ -1650,17 +1701,17 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             // Note: validator.liquidSupply cannot be equal to zero here
             uint256 _delegatedStake = _validator.bondedStake - _validator.selfBondedStake;
             _newtonAmount = (_liquidAmount * _delegatedStake) / _validator.liquidSupply;
-           _validator.liquidSupply -= _liquidAmount;
+            _validator.liquidSupply -= _liquidAmount;
 
             // Step 3: Calculate the amount of shares the staker will get in the unbonding pool.
             // Note : This accounting extra-complication is due to the possibility of slashing unbonding funds.
-            if(_validator.unbondingStake == 0) {
+            if (_validator.unbondingStake == 0) {
                 _unbonding.unbondingShare = _newtonAmount;
             } else {
-                _unbonding.unbondingShare = (_newtonAmount * _validator.unbondingShares)/_validator.unbondingStake;
+                _unbonding.unbondingShare = (_newtonAmount * _validator.unbondingShares) / _validator.unbondingStake;
             }
             _validator.unbondingStake += _newtonAmount;
-            _validator.unbondingShares +=  _unbonding.unbondingShare;
+            _validator.unbondingShares += _unbonding.unbondingShare;
         } else {
             // self-delegated stake path, no LNTN<>NTN conversion
             _newtonAmount = _unbonding.amount;
@@ -1670,7 +1721,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
             if (_validator.selfUnbondingStake == 0) {
                 _unbonding.unbondingShare = _newtonAmount;
             } else {
-                _unbonding.unbondingShare = (_newtonAmount * _validator.selfUnbondingShares)/_validator.selfUnbondingStake;
+                _unbonding.unbondingShare = (_newtonAmount * _validator.selfUnbondingShares) / _validator.selfUnbondingStake;
             }
             _validator.selfUnbondingStake += _newtonAmount;
             _validator.selfUnbondingShares += _unbonding.unbondingShare;
@@ -1706,8 +1757,8 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
     function _stakingOperations() internal virtual {
         // bonding operations are executed first
         for (uint256 i = tailBondingID;
-                     i < headBondingID;
-                     _applyBonding(i++)){}
+            i < headBondingID;
+            _applyBonding(i++)) {}
 
         tailBondingID = headBondingID;
 
@@ -1717,8 +1768,8 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         }
         // Process the fresh unbonding requests, unbond NTN and burn LNTN
         for (uint256 i = lastUnlockedUnbonding;
-                     i < headUnbondingID;
-                      _applyUnbonding(i++)){}
+            i < headUnbondingID;
+            _applyUnbonding(i++)) {}
         lastUnlockedUnbonding = headUnbondingID;
 
         // Finally we release the locked NTN tokens
@@ -1749,7 +1800,7 @@ contract Autonity is IAutonity, IERC20, ReentrancyGuard, ScheduleController, Upg
         epoch.epochBlock = _epoch.epochBlock;
         epoch.nextEpochBlock = _epoch.nextEpochBlock;
         epoch.delta = _epoch.delta;
-        for (uint256 i=0; i<_epoch.committee.length; i++) {
+        for (uint256 i = 0; i < _epoch.committee.length; i++) {
             epoch.committee.push(_epoch.committee[i]);
         }
     }
