@@ -762,11 +762,9 @@ func TestProposerRewardDistribution(t *testing.T) {
 
 		autonityAtnsBig := new(big.Int).SetUint64(54644455456467) // random amount
 		t.Logf("atn rewards: %s", autonityAtnsBig.String())
-		// this has to match the ntn inflation unlocked NTNs.
-		// Can be retrieved by adding in solidity a revert(Helpers.toString(accounts[address(this)])); in Finalize
-		ntnRewardsBig := new(big.Int).SetUint64(8205384319979600000)
-		t.Logf("ntn rewards: %s", ntnRewardsBig.String())
 		r.GiveMeSomeMoney(r.Autonity.address, autonityAtnsBig)
+		ntnRewardsBig := r.RewardsAfterOneEpoch().RewardNTN
+		t.Logf("ntn rewards: %s", ntnRewardsBig.String())
 
 		autonityAtns := newFloat(autonityAtnsBig)
 		ntnRewards := newFloat(ntnRewardsBig)
@@ -1004,11 +1002,8 @@ func TestRewardWithholding(t *testing.T) {
 	}
 
 	atnRewards := new(big.Int).SetUint64(5467879877987) // random amount
-	// this has to match the ntn inflation unlocked NTNs.
-	// Can be retrieved by adding in solidity a revert(Helpers.toString(accounts[address(this)])); in Finalize
-	// Also can be used `r.RewardsAfterOneEpoch()` function to calculate rewards
-	ntnRewards := new(big.Int).SetUint64(8220842843566600000)
 	r.GiveMeSomeMoney(r.Autonity.address, atnRewards)
+	ntnRewards := r.RewardsAfterOneEpoch().RewardNTN
 
 	atnBalancesBefore := make(map[common.Address]*big.Int)
 	stakesBefore := make(map[common.Address]*big.Int)
